@@ -1,30 +1,82 @@
-
-#define F_CPU 16000000UL
-#include <avr/io.h>
+#define F_CPU 16000000UL  
+#include <avr/io.h>  
 #include <util/delay.h>
+#include <avr/interrupt.h>
+
+// Banderas
+char SUBIR = 0;
+char BAJAR = 0;
+char SUMAR = 0;
+char RESTAR = 0;
+char ENTER = 0;
+
+// Variables
+uint8_t unidades = 0;
+uint8_t decenas = 0;
+uint8_t guardadou = 0;
+uint8_t guardadod = 0;
+uint8_t mate = 0; // 1 = resta, 2 = suma
+int resultadou = 0;
+int resultadod = 0;
+
+void config_PCI(void) {
+ PCICR |= 0x02;//habilitar en puertoc
+
+PCMSK1 |= 0x01; //pinc0
+DDRC &= ~0x01;  
+PORTC |= 0x01;  
+
+PCMSK1 |= 0x02; //pin c1
+DDRC &= ~0x02;
+PORTC |= 0x02;
+
+PCMSK1 |= 0x04; //pinc2
+DDRC &= ~0x04;
+PORTC |= 0x04;
+
+PCMSK1 |= 0x08; //pinc3
+DDRC &= ~0x08;
+PORTC |= 0x08;
+
+PCMSK1 |= 0x10; //pinc4
+DDRC &= ~0x10;
+PORTC |= 0x10;    
+}
+
+ISR(PCINT1_vect) {
+    _delay_ms(100); // antirrebote
+
+    if (!(PINC & 0x01)) {     
+        SUBIR = 1;
+        BAJAR = SUMAR = RESTAR = ENTER = 0;
+    }
+    else if (!(PINC & 0x02)) { //BAJAR
+        BAJAR = 1;
+        SUBIR = SUMAR = RESTAR = ENTER = 0;
+    }
+    else if (!(PINC & 0x04)) { //RESTAR
+        RESTAR = 1;
+        SUBIR = BAJAR = SUMAR = ENTER = 0;
+    }
+    else if (!(PINC & 0x08)) { // SUMAR
+        SUMAR = 1;
+        SUBIR = BAJAR = RESTAR = ENTER = 0;
+    }
+    else if (!(PINC & 0x10)) { // ENTER
+        ENTER = 1;
+        SUBIR = BAJAR = SUMAR = RESTAR = 0;
+    }
+}
 
 int main(void) {
-    // Configurar salidas para displays
-    DDRD |= 0xF0;            // PD4–PD7 como salida (decenas)
-    DDRB |= 0x0F;            // PB0–PB3 como salida (unidades)
+    DDRD |= 0xF0; // PD4–PD7 salida (decenas)
+    DDRB |= 0x0F; // PB0–PB3 salida (unidades)
 
-    // Configurar entradas para botones con resistencias pull-up
-    DDRC &= ~(0x1F);         // PC0–PC4 como entrada
-    PORTC |= 0x1F;           // Activar pull-ups en PC0–PC4
-
-    uint8_t unidades = 0;
-    uint8_t decenas = 0;
-    uint8_t guardadou = 0;
-    uint8_t guardadod = 0;
-    uint8_t mate = 0;        // 1 = resta, 2 = suma
+    config_PCI();
+    sei(); // 
 
     while (1) {
-        // Botón SUBIR (PC0)
-        if (!(PINC & 0x01)) {
-            _delay_ms(50);
-            while (!(PINC & 0x01));
-            _delay_ms(50);
-
+        if (SUBIR == 1) {
             if (!(decenas == 9 && unidades == 9)) {
                 if (unidades >= 9) {
                     unidades = 0;
@@ -33,14 +85,9 @@ int main(void) {
                     unidades++;
                 }
             }
+            SUBIR = 0;
         }
-
-        // Botón BAJAR (PC1)
-        if (!(PINC & 0x02)) {
-            _delay_ms(50);
-            while (!(PINC & 0x02));
-            _delay_ms(50);
-
+        else if (BAJAR == 1) {
             if (!(unidades == 0 && decenas == 0)) {
                 if (unidades == 0) {
                     unidades = 9;
@@ -51,59 +98,37 @@ int main(void) {
                     unidades--;
                 }
             }
+            BAJAR = 0;
         }
-
-        // Botón RESTAR (PC2)
-        if (!(PINC & 0x04)) {
-            _delay_ms(50);
-            while (!(PINC & 0x04));
-            _delay_ms(50);
-
+        else if (RESTAR == 1) {
             guardadou = unidades;
             guardadod = decenas;
-
             unidades = 0;
             decenas = 0;
-
             mate = 1;
+            RESTAR = 0;
         }
-
-        // Botón SUMAR (PC3)
-        if (!(PINC & 0x08)) {
-            _delay_ms(50);
-            while (!(PINC & 0x08));
-            _delay_ms(50);
-
+        else if (SUMAR == 1) {
             guardadou = unidades;
             guardadod = decenas;
-
             unidades = 0;
             decenas = 0;
-
             mate = 2;
+            SUMAR = 0;
         }
-
-        // Botón ENTER (PC4)
-        if (!(PINC & 0x10)) {
-            _delay_ms(50);
-            while (!(PINC & 0x10));
-            _delay_ms(50);
-
+        else if (ENTER == 1) {
             uint8_t finalu = unidades;
             uint8_t finald = decenas;
-
-            int resultadou = 0;
-            int resultadod = 0;
-
-            if (mate == 1) { // Resta
+            
+            if (mate == 1) {
                 resultadou = guardadou - finalu;
                 resultadod = guardadod - finald;
-            } else if (mate == 2) { // Suma
+            }
+            else if (mate == 2) {
                 resultadou = guardadou + finalu;
                 resultadod = guardadod + finald;
             }
 
-            // Ajustes si hay desbordes o negativos
             if (resultadou < 0) {
                 if (resultadod > 0) {
                     resultadod--;
@@ -123,7 +148,8 @@ int main(void) {
 
             unidades = resultadou;
             decenas = resultadod;
-            mate = 0; // reiniciar operación
+            mate = 0;
+            ENTER = 0;
         }
 
         // Mostrar valores en display
